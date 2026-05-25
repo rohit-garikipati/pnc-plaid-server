@@ -1,14 +1,27 @@
 const http = require('http');
 const https = require('https');
 
-// ── PUT YOUR CREDENTIALS HERE ──────────────────────────────────────────────
-const CLIENT_ID = '6a1396c5da4ac8000dfec369';
-const SECRET    = 'f7085046f60aa13e6b8ebcd5fac458';
-const ENV       = 'production'; // change to 'production' for real PNC
-// ──────────────────────────────────────────────────────────────────────────
-
+const CLIENT_ID = process.env.CLIENT_ID || 'YOUR_CLIENT_ID';
+const SECRET    = process.env.SECRET    || 'YOUR_SECRET';
+const ENV       = process.env.PLAID_ENV || 'production';
 const PLAID_HOST = `${ENV}.plaid.com`;
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
+
+const OAUTH_HTML = `<!DOCTYPE html><html><head><title>Connecting...</title>
+<script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
+</head><body>
+<p style="font-family:sans-serif;padding:2rem">Completing PNC connection...</p>
+<script>
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get('oauth_state_id') || params.get('link_token');
+  if(window.opener) {
+    window.opener.postMessage({type:'oauth_complete', search: window.location.search}, '*');
+    window.close();
+  } else {
+    document.querySelector('p').textContent = 'Connection complete. You can close this window.';
+  }
+</script>
+</body></html>`;
 
 function plaid(path, body) {
   return new Promise((resolve, reject) => {
@@ -27,9 +40,17 @@ function plaid(path, body) {
 const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.setHeader('Content-Type', 'application/json');
 
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+
+  if (req.url === '/oauth-response.html' || req.url.startsWith('/oauth-response.html?')) {
+    res.setHeader('Content-Type', 'text/html');
+    res.writeHead(200);
+    res.end(OAUTH_HTML);
+    return;
+  }
+
+  res.setHeader('Content-Type', 'application/json');
 
   let body = '';
   req.on('data', c => body += c);
@@ -39,13 +60,15 @@ const server = http.createServer(async (req, res) => {
       let result;
 
       if (req.url === '/api/link-token') {
-        result = await plaid('/link/token/create', {
+        const linkBody = {
           user: { client_user_id: 'pnc-dashboard' },
           client_name: 'PNC Dashboard',
           products: ['transactions'],
           country_codes: ['US'],
-          language: 'en'
-        });
+          language: 'en',
+          redirect_uri: 'https://pnc-plaid-server.onrender.com/oauth-response.html'
+        };
+        result = await plaid('/link/token/create', linkBody);
       } else if (req.url === '/api/exchange') {
         result = await plaid('/item/public_token/exchange', { public_token: parsed.public_token });
       } else if (req.url === '/api/sync') {
@@ -57,9 +80,7 @@ const server = http.createServer(async (req, res) => {
           institution_id: 'ins_13',
           initial_products: ['transactions']
         });
-        result = await plaid('/item/public_token/exchange', {
-          public_token: sandboxItem.public_token
-        });
+        result = await plaid('/item/public_token/exchange', { public_token: sandboxItem.public_token });
       } else {
         res.writeHead(404); res.end(JSON.stringify({ error: 'Not found' })); return;
       }
@@ -74,7 +95,6 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`\n✓ PNC Plaid proxy running at http://localhost:${PORT}`);
-  console.log(`  Environment: ${ENV}`);
-  console.log(`  Press Ctrl+C to stop\n`);
+  console.log(`\n✓ PNC Plaid proxy running on port ${PORT}`);
+  console.log(`  Environment: ${ENV}\n`);
 });
