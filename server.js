@@ -4,6 +4,7 @@ const https = require('https');
 const CLIENT_ID = process.env.CLIENT_ID || 'YOUR_CLIENT_ID';
 const SECRET    = process.env.SECRET    || 'YOUR_SECRET';
 const ENV       = process.env.PLAID_ENV || 'production';
+const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || '';
 const PLAID_HOST = `${ENV}.plaid.com`;
 const PORT = process.env.PORT || 3001;
 const REDIRECT_URI = 'https://pnc-plaid-server.onrender.com/oauth-response.html';
@@ -126,6 +127,25 @@ function plaid(path, body) {
   });
 }
 
+function anthropic(payloadObj) {
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify(payloadObj);
+    const req = https.request(
+      { hostname: 'api.anthropic.com', path: '/v1/messages', method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(payload),
+          'x-api-key': ANTHROPIC_KEY,
+          'anthropic-version': '2023-06-01'
+        } },
+      res => { let d=''; res.on('data',c=>d+=c); res.on('end',()=>resolve(JSON.parse(d))); }
+    );
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
 const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -160,6 +180,29 @@ const server = http.createServer(async (req, res) => {
         const syncBody = { access_token: parsed.access_token };
         if (parsed.cursor) syncBody.cursor = parsed.cursor;
         result = await plaid('/transactions/sync', syncBody);
+      } else if (req.url === '/api/parse-screenshot') {
+        if (!ANTHROPIC_KEY) { res.writeHead(500); res.end(JSON.stringify({error:'ANTHROPIC_API_KEY not set on server'})); return; }
+        const media = parsed.media_type || 'image/png';
+        const aiResp = await anthropic({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 2000,
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: media, data: parsed.image_base64 } },
+              { type: 'text', text: 'This is a screenshot of Apple Card transactions. Extract every transaction. Respond with ONLY a JSON array, no prose, no markdown fences. Each element: {"date":"YYYY-MM-DD","name":"merchant","amount":12.34}. Amount is a positive number for purchases (money spent) and negative for payments/credits/refunds. If the year is not shown, infer the most recent plausible year. Skip the "Total" / balance rows and any pending header text.' }
+            ]
+          }]
+        });
+        let txns = [];
+        try {
+          const text = (aiResp.content || []).filter(b=>b.type==='text').map(b=>b.text).join('');
+          const clean = text.replace(/```json|```/g,'').trim();
+          txns = JSON.parse(clean);
+        } catch(parseErr) {
+          res.writeHead(502); res.end(JSON.stringify({error:'Could not parse AI response', raw: aiResp})); return;
+        }
+        result = { transactions: txns };
       } else {
         res.writeHead(404); res.end(JSON.stringify({ error: 'Not found' })); return;
       }
