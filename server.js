@@ -203,6 +203,19 @@ const server = http.createServer(async (req, res) => {
           res.writeHead(502); res.end(JSON.stringify({error:'Could not parse AI response', raw: aiResp})); return;
         }
         result = { transactions: txns };
+      } else if (req.url === '/api/advice') {
+        if (!ANTHROPIC_KEY) { res.writeHead(500); res.end(JSON.stringify({error:'ANTHROPIC_API_KEY not set on server'})); return; }
+        const aiResp = await anthropic({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 900,
+          messages: [{
+            role: 'user',
+            content: `You are a concise personal finance assistant. Based on this spending summary, give specific, grounded budgeting advice. Reference the actual numbers and categories. Give 3-5 short observations or suggestions, each one sentence or two. Be direct and practical, not generic. Do not use markdown headers. Here is the data:\n\n${parsed.summary}`
+          }]
+        });
+        const text=(aiResp.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('');
+        if(!text){ res.writeHead(502); res.end(JSON.stringify({error:'No advice returned',raw:aiResp})); return; }
+        result = { advice: text };
       } else {
         res.writeHead(404); res.end(JSON.stringify({ error: 'Not found' })); return;
       }
