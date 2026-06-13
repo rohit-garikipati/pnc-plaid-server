@@ -190,7 +190,7 @@ const server = http.createServer(async (req, res) => {
             role: 'user',
             content: [
               { type: 'image', source: { type: 'base64', media_type: media, data: parsed.image_base64 } },
-              { type: 'text', text: 'This is a screenshot of Apple Card transactions. Extract every transaction. Respond with ONLY a JSON array, no prose, no markdown fences. Each element: {"date":"YYYY-MM-DD","name":"merchant","amount":12.34}. Amount is a positive number for purchases (money spent) and negative for payments/credits/refunds. If the year is not shown, infer the most recent plausible year. Skip the "Total" / balance rows and any pending header text.' }
+              { type: 'text', text: 'This is a screenshot of Apple Card transactions. Extract every transaction. Respond with ONLY a JSON array, no prose, no markdown fences. Each element: {"date":"YYYY-MM-DD","name":"merchant","amount":12.34,"category":"..."}. Amount is a positive number for purchases (money spent) and negative for payments/credits/refunds. Category must be exactly one of: Living expenses, Utilities, Food & dining, Groceries, Transport, Shopping, Entertainment, Subscriptions, Health, Travel, Other. If the year is not shown, infer the most recent plausible year. Skip the "Total" / balance rows and any pending header text.' }
             ]
           }]
         });
