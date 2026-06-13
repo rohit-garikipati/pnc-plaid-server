@@ -202,7 +202,7 @@ const server = http.createServer(async (req, res) => {
         } catch(parseErr) {
           res.writeHead(502); res.end(JSON.stringify({error:'Could not parse AI response', raw: aiResp})); return;
         }
-        result = { transactions: txns };
+        result = { transactions: txns, usage: aiResp.usage||null, model: 'sonnet' };
       } else if (req.url === '/api/advice') {
         if (!ANTHROPIC_KEY) { res.writeHead(500); res.end(JSON.stringify({error:'ANTHROPIC_API_KEY not set on server'})); return; }
         const aiResp = await anthropic({
@@ -215,7 +215,7 @@ const server = http.createServer(async (req, res) => {
         });
         const text=(aiResp.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('');
         if(!text){ res.writeHead(502); res.end(JSON.stringify({error:'No advice returned',raw:aiResp})); return; }
-        result = { advice: text };
+        result = { advice: text, usage: aiResp.usage||null, model: 'haiku' };
       } else {
         res.writeHead(404); res.end(JSON.stringify({ error: 'Not found' })); return;
       }
